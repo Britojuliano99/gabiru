@@ -131,6 +131,14 @@ pub fn import_csv_preview(
     path: impl AsRef<Path>,
     preview_limit: usize,
 ) -> Result<(ImportedWorkbook, bool), String> {
+    let (workbook, truncated, _) = import_csv_preview_with_total_rows(path, preview_limit)?;
+    Ok((workbook, truncated))
+}
+
+pub fn import_csv_preview_with_total_rows(
+    path: impl AsRef<Path>,
+    preview_limit: usize,
+) -> Result<(ImportedWorkbook, bool, usize), String> {
     let path = path.as_ref();
     let dialect = infer_csv_dialect(path)?;
     import_csv_reader_preview(path, dialect.delimiter, dialect.decimal_separator, preview_limit)
@@ -238,7 +246,7 @@ fn import_csv_reader_preview(
     delimiter: u8,
     decimal_separator: char,
     preview_limit: usize,
-) -> Result<(ImportedWorkbook, bool), String> {
+) -> Result<(ImportedWorkbook, bool, usize), String> {
     let file = File::open(path)
         .map_err(|err| format!("Falha ao abrir o arquivo {}: {err}", path.display()))?;
 
@@ -259,24 +267,23 @@ fn import_csv_reader_preview(
 
     let mut rows = Vec::new();
     let mut truncated = false;
+    let mut total_rows = 0usize;
 
     while let Some(record) = records.next() {
+        total_rows += 1;
+        let record = record.map_err(|err| format!("Falha ao ler o arquivo {}: {err}", path.display()))?;
+
         if preview_limit > 0 && rows.len() >= preview_limit {
             truncated = true;
-            break;
+            continue;
         }
 
-        let record = record.map_err(|err| format!("Falha ao ler o arquivo {}: {err}", path.display()))?;
         rows.push(
             record
                 .iter()
                 .map(|value| normalize_csv_cell(value, decimal_separator))
                 .collect::<Vec<_>>(),
         );
-    }
-
-    if !truncated {
-        truncated = records.next().is_some();
     }
 
     Ok((
@@ -293,6 +300,7 @@ fn import_csv_reader_preview(
             }],
         },
         truncated,
+        total_rows,
     ))
 }
 
